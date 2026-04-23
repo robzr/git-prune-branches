@@ -1,0 +1,171 @@
+#!/usr/bin/env bash
+# https://github.com/robzr/git-prune-branches
+
+LOG=${GIT_PRUNE_BRANCHES_LOG:-~/.config/${0##*/}/activity.log}
+
+ASSUME=''
+FORCE=false
+DRY_RUN=false QUIET=false
+
+while getopts "Nfhnqyz" opt; do
+  case $opt in
+    N) DRY_RUN=true ;;
+    f) FORCE=true ;;
+    n) ASSUME=n ;;
+    q) QUIET=true ;;
+    y) ASSUME=y ;;
+    z) LOG= ;;
+    *) cat <<- _EOF_
+	${0##*/} [-N] [-f] [-h] [-(n|y)] [-q] [-z] [<branch_regex>]
+
+	Compare & optionally delete branches that have no changes from default branch.
+	Default behavior is interactive and safe to use; options for rebase or shell.
+	Use -n for a non-interactive display of changes, or -qn for a quiet test.
+	Use -y to delete branches with no diffs, -fy to delete all matching branches.
+	Returns 0 if no empty branches exist, otherwise 1.
+
+	-N  dry run (use with -y to print the branch delete command but not run it)
+	-f  force (use with -y) !!! CAUTION will delete branches with diffs !!!
+	-h  help (usage information)
+	-n  assume no (dry run for branches with no diff)
+	-q  quiet mode (will skip branches when a prompt is required)
+	-y  assume yes (delete all branches with no diff)
+	-z  do not log to ${LOG}
+	<branch_regex>  specify a regex to run against only matching branches
+
+	_EOF_
+    exit 1
+  esac
+done
+shift $((OPTIND - 1))
+if $FORCE && [ "$ASSUME" = y ] ; then
+  echo "Refusing to run -f -y with no branch regex; add '.*' if you're sure."
+  exit 1
+fi
+BRANCH_REGEX=${1:-.*}
+
+RETVAL=0
+if ! CURRENT_BRANCH=$(git branch --show-current 2>/dev/null) ; then
+  echo "You're not in a git repo, are you."
+  exit 1
+fi
+if ! DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD --quiet --short) ; then
+  echo "No default branch detected - is this repo local only?" >&2
+  exit 1
+fi
+DEFAULT_BRANCH=${DEFAULT_BRANCH#origin/}
+TMP=$(mktemp)
+
+if ! [ "$CURRENT_BRANCH" = "$DEFAULT_BRANCH" ] ; then
+	if git diff --quiet ; then
+    if ! git checkout -q "$DEFAULT_BRANCH" ; then
+      echo "Error switching to default branch." >&2
+      exit 1
+    fi
+  else
+    echo "Cannot switch to default branch because there are uncommitted changes, quitting." >&2
+    exit 1
+  fi
+fi
+
+compare_branch() {
+  git log --oneline --color=always "${DEFAULT_BRANCH}..refs/heads/${1}" > "$TMP"
+  if [ -s "$TMP" ] ; then
+    $QUIET || echo "${1} - differences detected"
+    $QUIET || cat "$TMP"
+    return 0
+  else
+    $QUIET || echo "${1} - no differences"
+    return 1
+  fi
+}
+
+if [ -n "$LOG" ] ; then
+  if [[ ! -d "${LOG%/*}" ]] && ! mkdir -p "${LOG%/*}" 2>/dev/null ; then
+    echo "Cannot make log directory \"${LOG%/*}\""
+    exit 1
+  fi
+  if ! touch "$LOG" 2>/dev/null ; then
+    echo "Cannot write to log \"${LOG}\""
+    exit 1
+  fi
+fi
+
+for branch in $(
+  git branch --format='%(refname:short)' |
+    egrep -v "^${DEFAULT_BRANCH}$" |
+    egrep "$BRANCH_REGEX"
+) ; do
+  compare_branch "$branch" && DIFF=true || DIFF=false
+  while true ; do
+    if [ -n "$ASSUME" ] ; then
+      if $DIFF && ! $FORCE ; then
+        response=n
+      else
+        response=$ASSUME
+      fi
+    else
+      if $QUIET ; then
+        response=n
+      else
+        if $DIFF ; then
+          read -n 1 -p 'Delete branch? (y)es (n)o (r)ebase (s)hell (q)uit: ' response
+        else
+          read -n 1 -p 'Delete branch? (y)es (n)o (q)uit: ' response
+        fi
+        echo
+      fi
+    fi
+    case $response in
+      n)
+        $DIFF || RETVAL=1
+        break
+        ;;
+      q)
+        exit $RETVAL
+        ;;
+      r)
+        git rebase -i "$DEFAULT_BRANCH" "refs/heads/${branch}"
+        if [ -f "$(git rev-parse --git-dir)/REBASE_HEAD" ] ; then
+          echo -e "\nrebase is not completed - finish it"
+          sh
+          git rebase --abort 2> /dev/null
+        fi
+        compare_branch "$branch"
+        continue
+        ;;
+      s)
+        sh
+        compare_branch "$branch"
+        continue
+        ;;
+      y)
+        if $DRY_RUN ; then
+          echo git branch -D "$branch"
+        else
+          if [ -n "$LOG" ] ; then
+            {
+              echo "($(TZ=UTC date +'%Y-%m-%dT%H:%M:%SZ')) Deleting $(git rev-parse --show-toplevel)@${branch}"
+              echo -n "recreate with: git -c advice.detachedHead=False checkout $(git rev-parse --short "$branch")"
+              echo " && git switch -c \"$branch\""
+              git log --oneline "${DEFAULT_BRANCH}..refs/heads/${branch}" | sed 's/^/> /'
+            } >> "$LOG"
+          fi
+          git branch -D "$branch" | sed 's/^/> /'
+        fi
+        break
+        ;;
+      *)
+        echo "Invalid choice \"${response}\""
+        continue
+        ;;
+    esac
+  done
+done
+
+git show-ref --verify --quiet "refs/heads/${CURRENT_BRANCH}" &&
+  git checkout -q "$CURRENT_BRANCH"
+
+rm -f "$TMP"
+
+exit $RETVAL
