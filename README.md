@@ -2,10 +2,24 @@
 Removes/rebases branches with no diffs from default branch
 
 ## Usage
-Simply run from 
+Run with no options inside a repo, it's safe.
+```shell
+% ./git-prune-branches
+feat/add_script - differences detected
+000d4a1 add README
+742f15e add git-prune-branches
+Delete branch? (y)es (n)o (r)ebase (s)hell (q)uit: n
+feat/increase_memory - no differences
+Delete branch? (y)es (n)o (q)uit: y
+> Deleted branch feat/increase_memory (was 67f7ae1).
+hotfix/fix_memory_leak - no differences
+Delete branch? (y)es (n)o (q)uit: y
+> Deleted branch hotfix/fix_memory_leak (was 67f7ae1).
+```
+Deleted branches with restore commands are logged to `~/.config/git-prune-branches/activity.log`
 
 Run with `-h` to display advanced usage information.
-```
+```shell
 % ./git-prune-branches -h
 git-prune-branches [-N] [-f] [-h] [-(n|y)] [-q] [-z] [<branch_regex>]
 
