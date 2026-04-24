@@ -18,18 +18,18 @@ while getopts "Nfhnqyz" opt; do
     *) cat <<- _EOF_
 	${0##*/} [-N] [-f] [-h] [-(n|y)] [-q] [-z] [<branch_regex>]
 
-	Compare & optionally delete branches that have no changes from default branch.
-	Default behavior is interactive and safe to use; options for rebase or shell.
+	Compare & optionally delete branches with no commits ahead of default branch.
+	Default behavior is interactive & safe to use with options for rebase or shell.
 	Use -n for a non-interactive display of changes, or -qn for a quiet test.
-	Use -y to delete branches with no diffs, -fy to delete all matching branches.
-	Returns 0 if no empty branches exist, otherwise 1.
+	Use -y to delete branches with no commits, -fy to delete all matching branches.
+	Returns 0 if no such branches exist, otherwise 1.
 
 	-N  dry run (use with -y to print the branch delete command but not run it)
-	-f  force (use with -y) !!! CAUTION will delete branches with diffs !!!
+	-f  force (use with -y) !!! CAUTION will delete branches with commits !!!
 	-h  help (usage information)
-	-n  assume no (dry run for branches with no diff)
+	-n  assume no (dry run for branches with no commits)
 	-q  quiet mode (will skip branches when a prompt is required)
-	-y  assume yes (delete all branches with no diff)
+	-y  assume yes (delete all branches with no commits)
 	-z  do not log to ${LOG}
 	<branch_regex>  specify a regex to run against only matching branches
 
